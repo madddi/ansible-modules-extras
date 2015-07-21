@@ -22,7 +22,6 @@
 __author__ = 'cschmidt'
 
 from lxml import etree
-from urllib2 import Request, urlopen, URLError, HTTPError
 import os
 import hashlib
 import sys
@@ -165,7 +164,8 @@ class Artifact(object):
 
 
 class MavenDownloader:
-    def __init__(self, base="http://repo1.maven.org/maven2", username=None, password=None):
+    def __init__(self, module, base="http://repo1.maven.org/maven2", username=None, password=None):
+        self.module = module
         if base.endswith("/"):
             base = base.rstrip("/")
         self.base = base
@@ -208,13 +208,10 @@ class MavenDownloader:
                 "User-Agent": self.user_agent,
                 "Authorization": "Basic " + base64.b64encode(self.username + ":" + self.password)
             }
-        req = Request(url, None, headers)
-        try:
-            response = urlopen(req)
-        except HTTPError, e:
-            raise ValueError(failmsg + " because of " + str(e) + "for URL " + url)
-        except URLError, e:
-            raise ValueError(failmsg + " because of " + str(e) + "for URL " + url)
+
+        response, info = fetch_url(self.module, url, headers=headers)
+        if info['status'] != 200:
+            raise ValueError(failmsg + " because of " + info['msg'] + "for URL " + url)
         else:
             return f(response)
 
@@ -311,7 +308,7 @@ def main():
     if not repository_url:
         repository_url = "http://repo1.maven.org/maven2"
 
-    downloader = MavenDownloader(repository_url, repository_username, repository_password)
+    downloader = MavenDownloader(module, repository_url, repository_username, repository_password)
 
     try:
         artifact = Artifact(group_id, artifact_id, version, classifier, extension)
@@ -343,4 +340,5 @@ def main():
 # import module snippets
 from ansible.module_utils.basic import *
 from ansible.module_utils.urls import *
-main()
+if __name__ == '__main__':
+    main()
