@@ -20,7 +20,6 @@
 
 import shutil
 from os import path
-from urllib2 import Request, urlopen, URLError
 
 DOCUMENTATION = '''
 ---
@@ -93,7 +92,7 @@ def init_layman(config=None):
     return LaymanAPI(config)
 
 
-def download_url(url, dest):
+def download_url(module, url, dest):
     '''
     :param url: the URL to download
     :param dest: the absolute path of where to save the downloaded content to;
@@ -101,14 +100,13 @@ def download_url(url, dest):
 
     :raises ModuleError
     '''
-    request = Request(url)
-    request.add_header('User-agent', USERAGENT)
 
-    try:
-        response = urlopen(request)
-    except URLError, e:
-        raise ModuleError("Failed to get %s: %s" % (url, str(e)))
-    
+    # Hack to add params in the form that fetch_url expects
+    module.params['http_agent'] = USERAGENT
+    response, info = fetch_url(module, url)
+    if info['status'] != 200:
+        raise ModuleError("Failed to get %s: %s" % (url, info['msg']))
+
     try:
         with open(dest, 'w') as f:
             shutil.copyfileobj(response, f)
@@ -116,7 +114,7 @@ def download_url(url, dest):
         raise ModuleError("Failed to write: %s" % str(e))
 
 
-def install_overlay(name, list_url=None):
+def install_overlay(module, name, list_url=None):
     '''Installs the overlay repository. If not on the central overlays list,
     then :list_url of an alternative list must be provided. The list will be
     fetched and saved under ``%(overlay_defs)/%(name.xml)`` (location of the
@@ -138,18 +136,20 @@ def install_overlay(name, list_url=None):
         return False
 
     if not layman.is_repo(name):
-        if not list_url: raise ModuleError("Overlay '%s' is not on the list of known " \
+        if not list_url:
+            raise ModuleError("Overlay '%s' is not on the list of known " \
                 "overlays and URL of the remote list was not provided." % name)
 
         overlay_defs = layman_conf.get_option('overlay_defs')
         dest = path.join(overlay_defs, name + '.xml')
 
-        download_url(list_url, dest)
+        download_url(module, list_url, dest)
 
         # reload config
         layman = init_layman()
 
-    if not layman.add_repos(name): raise ModuleError(layman.get_errors())
+    if not layman.add_repos(name):
+        raise ModuleError(layman.get_errors())
 
     return True
 
@@ -216,12 +216,12 @@ def main():
     changed = False
     try:
         if state == 'present':
-            changed = install_overlay(name, url)
+            changed = install_overlay(module, name, url)
 
         elif state == 'updated':
             if name == 'ALL':
                 sync_overlays()
-            elif install_overlay(name, url):
+            elif install_overlay(module, name, url):
                 changed = True
             else:
                 sync_overlay(name)
@@ -236,4 +236,6 @@ def main():
 
 # import module snippets
 from ansible.module_utils.basic import *
-main()
+from ansible.module_utils.urls import *
+if __name__ == '__main__':
+    main()
